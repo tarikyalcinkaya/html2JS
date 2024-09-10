@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <title>Html2JS</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.3/codemirror.min.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.3/theme/abcdef.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.3/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.3/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.3/mode/htmlmixed/htmlmixed.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.62.3/mode/xml/xml.min.js"></script>
+    <style>
+      body {
+        display: flex;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+      }
+
+      .editor-wrapper {
+        display: flex;
+        flex: 1;
+        height: 100%;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .editor-container {
+        flex: 1;
+        height: 100%;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+
+      .editor {
+        flex: 1;
+        height: 100%;
+        font-size: 16px;
+      }
+
+      .editor>div {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="editor-wrapper">
+      <div class="editor-container">
+        <div class="editor" id="html-editor"></div>
+      </div>
+      <div class="editor-container">
+        <div class="editor" id="js-editor"></div>
+      </div>
+    </div>
+    <textarea id="default" style="display:none">
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTML to JS Example</title>
+    <style>
+      .highlight {
+        background-color: yellow;
+      }
+
+      #mainHeading {
+        font-size: 24px;
+      }
+
+      h2 {
+        color: blue;
+      }
+
+      p {
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="mainHeading">Hello World!</h1>
+    <p class="highlight">This is a highlighted paragraph.</p>
+    <div class="container">
+      <h2>Some Content</h2>
+      <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+    </div>
+  </body>
+</html>
+	</textarea>
+    
+    <script>
+      var htmlEditor = CodeMirror(document.getElementById("html-editor"), {
+        mode: "text/html",
+        theme: "abcdef",
+        lineNumbers: true,
+        tabSize: 2,
+        indentWithTabs: false
+      });
+      var javascriptEditor = CodeMirror(document.getElementById("js-editor"), {
+        mode: "javascript",
+        theme: "abcdef",
+        lineNumbers: true,
+        tabSize: 2,
+        readOnly: true
+      });
+      htmlEditor.setValue(document.getElementById('default').value);
+      javascriptEditor.setValue(generateJavaScriptCodeFromHTML(document.getElementById('default').value));
+      htmlEditor.on("change", function() {
+        javascriptEditor.setValue(generateJavaScriptCodeFromHTML(htmlEditor.getValue()));
+      });
+
+      function generateJavaScriptCodeFromHTML(html) {
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        let jsCode = "";
+        let elementIndex = {};
+
+        function generateCodeRecursive(element, parentVariableName) {
+          const tagName = element.tagName.toLowerCase();
+          const id = element.getAttribute("id");
+          const classNames = element.getAttribute("class")?.split(" ") ?? [];
+          let variableName;
+          if (id) {
+            variableName = id.replace(/-([a-zA-Z0-9])/g, (g) => g[1].toUpperCase()).replace(/[^a-zA-Z0-9]/g, '');
+          } else {
+            variableName = `${tagName}_${elementIndex[tagName] || 0}`;
+            elementIndex[tagName] = (elementIndex[tagName] || 0) + 1;
+          }
+          if (parentVariableName) {
+            variableName = `${parentVariableName}_${variableName}`;
+          }
+          jsCode += `const ${variableName} = document.createElement("${tagName}");\n`;
+          for (let className of classNames) {
+            jsCode += `${variableName}.classList.add("${className}");\n`;
+          }
+          for (let i = 0; i < element.attributes.length; i++) {
+            const attribute = element.attributes[i];
+            if (attribute.name === "class") {
+              continue;
+            }
+            jsCode += `${variableName}.setAttribute("${attribute.name}", "${attribute.value}");\n`;
+          }
+          for (let i = 0; i < element.childNodes.length; i++) {
+            const childNode = element.childNodes[i];
+            if (childNode.nodeType === Node.TEXT_NODE) {
+              if (childNode.textContent.trim() != '') {
+                jsCode += `${variableName}.textContent = \`${childNode.textContent.trim()}\`;\n`;
+              }
+            } else if (childNode.nodeType === Node.ELEMENT_NODE) {
+              generateCodeRecursive(childNode, variableName);
+            }
+          }
+          if (parentVariableName) {
+            jsCode += `${parentVariableName}.appendChild(${variableName});\n`;
+          }
+        }
+        generateInlineStylesFromCSS(doc);
+        const bodyChildren = doc.body.children;
+        for (let i = 0; i < bodyChildren.length; i++) {
+          generateCodeRecursive(bodyChildren[i], null);
+        }
+        return jsCode;
+      }
+
+      function generateInlineStylesFromCSS(doc) {
+        const styleTags = doc.head.getElementsByTagName("style");
+        let elementsWithStyles = [];
+        for (let i = 0; i < styleTags.length; i++) {
+          const css = styleTags[i].textContent.trim().replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+          if (!css) {
+            continue;
+          }
+          const rules = css.split(/\s*([^{]+)\s*\{\s*([^}]+)\s*\}\s*/);
+          rules.shift();
+          for (let j = 0; j < rules.length; j += 3) {
+            const selectors = rules[j].trim().split(/\s*,\s*/);
+            for (let k = 0; k < selectors.length; k++) {
+              let selector = selectors[k];
+              const elements = doc.querySelectorAll(selector);
+              for (let l = 0; l < elements.length; l++) {
+                elementsWithStyles.push({
+                  element: elements[l],
+                  style: rules[j + 1].replace('\n', '').trim(),
+                });
+              }
+            }
+          }
+        }
+        const mergedStyles = elementsWithStyles.reduce((acc, cur) => {
+          const existing = acc.find(item => item.element === cur.element);
+          if (existing) {
+            const existingStyles = styleReplace(existing.style, false);
+            const newStyles = styleReplace(cur.style, false);
+            newStyles.forEach(newStyle => {
+              const [property, value] = newStyle.split(':');
+              const existingStyle = existingStyles.find(s => s.startsWith(property));
+              if (existingStyle === undefined) {
+                existing.style += `;${newStyle}`;
+              } else {
+                const newValue = value.trim();
+                const existingValue = existingStyle.split(':')[1].trim();
+                if (existingValue !== newValue) {
+                  existing.style = existing.style.replace(existingStyle, `${property}:${newValue}`);
+                }
+              }
+            });
+          } else {
+            cur.style = styleReplace(cur.style);
+            acc.push(cur);
+          }
+          return acc;
+        }, []);
+
+        function styleReplace(styles, join = true) {
+          if (join) return styles.split(';').map((s) => s.trim()).filter(Boolean).join(';');
+          else return styles.split(';').map((s) => s.trim()).filter(Boolean);
+        }
+        for (let i = 0; i < mergedStyles.length; i++) {
+          mergedStyles[i].element.setAttribute("style", mergedStyles[i].style);
+        }
+      }
+    </script>
+  </body>
+</html>
